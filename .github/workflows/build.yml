@@ -20,7 +20,7 @@ jobs:
             engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
           key: bmgo-deps-rel-v1
 
-      - name: Install Release Libs via vcpkg & Compile Lua
+      - name: Install Release Libs & Fix Paths
         shell: pwsh
         run: |
           if (-not (Test-Path "C:\vcpkg\installed\x86-windows-rel\lib")) {
@@ -49,9 +49,16 @@ jobs:
           Get-ChildItem "$vcpkgLib\*z*.lib" | Where-Object { $_.Name -notlike "*zstd*" -and $_.Name -notlike "*jxr*" } | Select-Object -First 1 | Copy-Item -Destination "$depBase\Zlib\Win32\Lib\zlib.lib" -Force
           Get-Item "$vcpkgLib\g3log*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\g3log\win32\lib\g3logger.lib" -Force
 
+          # Дублируем zlib и curl для клиента
+          Copy-Item "$depBase\Zlib\Win32\Lib\zlib.lib" "$depBase\Lua\Win32\Lib\zlib.lib" -Force
           if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
             Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
           }
+
+          # Копируем raknet.lib в ожидаемую клиентом папку
+          $rakDest = "engine-10068\dev\logic\dependencies\raknet\win32\debug"
+          New-Item -ItemType Directory -Force -Path $rakDest | Out-Null
+          Copy-Item "engine-10068\dev\logic\dependencies\win32\raknet\lib\release\raknet.lib" "$rakDest\raknet.lib" -Force
 
           if (-not (Test-Path "$depBase\Lua\Win32\Lib\lua.lib")) {
             $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
@@ -60,6 +67,14 @@ jobs:
 
           if (-not (Test-Path "engine-10068\dev\engine-core")) {
             cmd /c mklink /J "engine-10068\dev\engine-core" "engine-10068\engine-core"
+          }
+
+          # Исправляем режим Behaviac на Release, чтобы не было конфликта MD_DynamicRelease vs MDd_DynamicDebug
+          $srvCmake = "engine-10068\dev\server\src\CMakeLists.txt"
+          $content = Get-Content $srvCmake -Raw
+          if ($content -notmatch "BEHAVIAC_RELEASE") {
+            $content = "add_definitions(`"-DBEHAVIAC_RELEASE`")`n" + $content
+            Set-Content $srvCmake $content
           }
 
       - name: Save vcpkg & Lua cache
@@ -91,7 +106,7 @@ jobs:
             }
           }
 
-      - name: Build Engine Core & Clothes (Multi-Core)
+      - name: Build Engine Core & Clothes
         shell: pwsh
         run: |
           cmake --build "engine-10068\engine-core\dev\engine\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
@@ -103,9 +118,12 @@ jobs:
         run: |
           msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
 
-      - name: Build Client (WinShell.sln)
-        shell: cmd
+      - name: Prepare Libs & Build Client (WinShell.sln)
+        shell: pwsh
         run: |
+          $luaLib = "engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib"
+          Copy-Item "engine-10068\engine-core\dev\engine\Bin\Release\*.lib" $luaLib -Force
+          Copy-Item "engine-10068\dev\logic\Bin\Release\Logic.lib" "$luaLib\logic.lib" -Force
           msbuild engine-10068\dev\client\Shells\Win32\WinShell.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
 
       - name: List built EXE & DLL files

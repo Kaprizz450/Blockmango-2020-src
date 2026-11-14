@@ -1,55 +1,21 @@
-name: Build Windows Engine
+name: Inspect Build Scripts
 
 on: [workflow_dispatch, push]
 
 jobs:
-  build-windows:
+  inspect:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Check scripts content
-        shell: cmd
-        run: |
-          cd engine-10068\dev
-          echo === cmakeall.cmd ===
-          type cmakeall.cmd
-          echo === Rebuild.bat ===
-          type Rebuild.bat
-
-      - name: Generate VS Projects
-        shell: cmd
-        run: |
-          cd engine-10068\dev
-          echo. | call cmakeall.cmd
-
-      - name: Compile Solutions with MSBuild
+      - name: Read build scripts and find CMakeLists
         shell: pwsh
         run: |
-          $slns = Get-ChildItem -Path "engine-10068" -Filter "*.sln" -Recurse
-          if ($slns.Count -eq 0) {
-            Write-Host "Файлы .sln не найдены. Ищем CMakeLists.txt:"
-            Get-ChildItem -Path "engine-10068" -Filter "CMakeLists.txt" -Recurse | Select-Object FullName
-            exit 1
-          }
-          foreach ($sln in $slns) {
-            Write-Host "=== Сборка: $($sln.FullName) ==="
-            msbuild $sln.FullName /p:Configuration=Release /p:Platform=Win32 /m
-          }
-
-      - name: List built EXE files
-        shell: cmd
-        run: |
-          dir /s /b engine-10068\*.exe
-
-      - name: Upload Binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: BlockmanGO-PC-Build
-          path: |
-            engine-10068/**/*.exe
-            engine-10068/**/*.dll
-          if-no-files-found: error
+          Write-Host "=== cmakeall.cmd ==="
+          Get-Content "engine-10068\dev\cmakeall.cmd" -ErrorAction SilentlyContinue
+          Write-Host "`n=== Rebuild.bat ==="
+          Get-Content "engine-10068\dev\Rebuild.bat" -ErrorAction SilentlyContinue
+          Write-Host "`n=== Все файлы CMakeLists.txt ==="
+          Get-ChildItem -Path "engine-10068" -Filter "CMakeLists.txt" -Recurse | Select-Object FullName
+          Write-Host "`n=== Все файлы .sln ==="
+          Get-ChildItem -Path "engine-10068" -Filter "*.sln" -Recurse | Select-Object FullName

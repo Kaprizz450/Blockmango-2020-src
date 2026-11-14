@@ -1,0 +1,65 @@
+name: Build BlockmanGO Client
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout client code
+        uses: actions/checkout@v4
+
+      - name: Download Skyblock maps (m1008)
+        run: |
+          git clone --depth 1 https://github.com/Comical78/ugo-offline.git /tmp/ugo
+          mkdir -p skyblock_maps
+          cp /tmp/ugo/files/maps/m1008*.zip skyblock_maps/ || true
+          ls -la skyblock_maps/
+
+      - name: Set up JDK 17 for SDK Manager
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install NDK r21e
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "ndk;21.4.7075529"
+
+      - name: Switch to JDK 11 for Build
+        uses: actions/setup-java@v5
+        with:
+          java-version: '11'
+          distribution: 'temurin'
+
+      - name: Copy maps & Build APK
+        run: |
+          ASSETS_DIR=$(find . -maxdepth 5 -type d -name "assets" | head -n 1)
+          if [ -n "$ASSETS_DIR" ]; then
+            echo "Found assets dir at $ASSETS_DIR"
+            mkdir -p "$ASSETS_DIR/maps"
+            cp skyblock_maps/*.zip "$ASSETS_DIR/maps/"
+          fi
+
+          GRADLEW_PATH=$(find . -maxdepth 4 -name "gradlew" | head -n 1)
+          if [ -n "$GRADLEW_PATH" ]; then
+            echo "Found gradlew at $GRADLEW_PATH"
+            cd "$(dirname "$GRADLEW_PATH")"
+            chmod +x ./gradlew
+            ./gradlew assembleDebug
+          else
+            echo "gradlew не найден. Структура репозитория:"
+            find . -maxdepth 3 -not -path '*/.*'
+            exit 1
+          fi
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockmango-skyblock-apk
+          path: "**/*.apk"
+          

@@ -69,12 +69,14 @@ jobs:
             cmd /c mklink /J "engine-10068\dev\engine-core" "engine-10068\engine-core"
           }
 
-          # Исправляем режим Behaviac на Release, чтобы не было конфликта MD_DynamicRelease vs MDd_DynamicDebug
-          $srvCmake = "engine-10068\dev\server\src\CMakeLists.txt"
-          $content = Get-Content $srvCmake -Raw
-          if ($content -notmatch "BEHAVIAC_RELEASE") {
-            $content = "add_definitions(`"-DBEHAVIAC_RELEASE`")`n" + $content
-            Set-Content $srvCmake $content
+          # Убираем принудительный #define _DEBUG из файлов Behaviac
+          Get-ChildItem -Path "engine-10068\dev\server\src\Behaviac", "engine-10068\dev\server\dependencies\win32\behaviac" -Recurse -Include *.h,*.hpp,*.cpp,*.inl | ForEach-Object {
+            $text = Get-Content $_.FullName -Raw
+            if ($text -match '#\s*define\s+_DEBUG\b|#\s*undef\s+NDEBUG\b') {
+              $text = $text -replace '#\s*define\s+_DEBUG\b', '// #define _DEBUG'
+              $text = $text -replace '#\s*undef\s+NDEBUG\b', '// #undef NDEBUG'
+              Set-Content $_.FullName $text
+            }
           }
 
       - name: Save vcpkg & Lua cache

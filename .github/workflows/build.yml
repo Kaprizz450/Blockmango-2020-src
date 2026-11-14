@@ -49,8 +49,9 @@ jobs:
           Get-ChildItem "$vcpkgLib\*z*.lib" | Where-Object { $_.Name -notlike "*zstd*" -and $_.Name -notlike "*jxr*" } | Select-Object -First 1 | Copy-Item -Destination "$depBase\Zlib\Win32\Lib\zlib.lib" -Force
           Get-Item "$vcpkgLib\g3log*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\g3log\win32\lib\g3logger.lib" -Force
 
-          # Дублируем zlib и curl для клиента
+          # Дублируем zlib, curl и OpenGL ES (libEGL / libGLESv2) для клиента
           Copy-Item "$depBase\Zlib\Win32\Lib\zlib.lib" "$depBase\Lua\Win32\Lib\zlib.lib" -Force
+          Get-ChildItem "$depBase\opengles_v2" -Recurse -Filter *.lib | Copy-Item -Destination "$depBase\Lua\Win32\Lib\" -Force
           if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
             Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
           }

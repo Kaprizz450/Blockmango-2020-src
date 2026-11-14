@@ -26,7 +26,7 @@ jobs:
               Write-Host "=== CMake: $dir ==="
               New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
               Push-Location "$dir\Build"
-              cmake -A Win32 ..
+              cmake -A Win32 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
               Pop-Location
             }
           }

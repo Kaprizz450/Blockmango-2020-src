@@ -1,17 +1,19 @@
-name: Check Libs and Core SLN
+name: Check Required Libs
 
 on: [workflow_dispatch, push]
 
 jobs:
-  check-libs:
+  check:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find all .lib files in repo
+      - name: Inspect CMakeLists & SDK
         shell: pwsh
         run: |
-          Write-Host "=== Все .lib файлы в репозитории ==="
-          Get-ChildItem -Path "engine-10068" -Filter "*.lib" -Recurse | Select-Object FullName
-          Write-Host "`n=== Папки внутри Dependencies ==="
-          Get-ChildItem -Path "engine-10068\engine-core\dev\engine\Dependencies" -Recurse -Depth 2 | Select-Object FullName
+          Write-Host "=== Core CMakeLists.txt ==="
+          Get-Content "engine-10068\engine-core\dev\engine\Src\Core\CMakeLists.txt"
+          Write-Host "`n=== Server CMakeLists.txt ==="
+          Get-Content "engine-10068\dev\server\src\CMakeLists.txt"
+          Write-Host "`n=== Client CMakeLists.txt ==="
+          Get-Content "engine-10068\dev\client\Src\CMakeLists.txt"

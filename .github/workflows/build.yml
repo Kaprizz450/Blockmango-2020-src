@@ -8,6 +8,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
       - name: Check scripts content
         shell: cmd
         run: |
@@ -21,13 +24,21 @@ jobs:
         shell: cmd
         run: |
           cd engine-10068\dev
-          call cmakeall.cmd
+          echo. | call cmakeall.cmd
 
-      - name: Compile C++ to EXE
-        shell: cmd
+      - name: Compile Solutions with MSBuild
+        shell: pwsh
         run: |
-          cd engine-10068\dev
-          call Rebuild.bat
+          $slns = Get-ChildItem -Path "engine-10068" -Filter "*.sln" -Recurse
+          if ($slns.Count -eq 0) {
+            Write-Host "Файлы .sln не найдены. Ищем CMakeLists.txt:"
+            Get-ChildItem -Path "engine-10068" -Filter "CMakeLists.txt" -Recurse | Select-Object FullName
+            exit 1
+          }
+          foreach ($sln in $slns) {
+            Write-Host "=== Сборка: $($sln.FullName) ==="
+            msbuild $sln.FullName /p:Configuration=Release /p:Platform=Win32 /m
+          }
 
       - name: List built EXE files
         shell: cmd

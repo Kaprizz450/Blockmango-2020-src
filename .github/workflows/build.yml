@@ -8,17 +8,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Check build scripts
+      - name: Check scripts content
         shell: cmd
         run: |
           cd engine-10068\dev
+          echo === cmakeall.cmd ===
           type cmakeall.cmd
+          echo === Rebuild.bat ===
+          type Rebuild.bat
 
-      - name: Run CMake Build
+      - name: Generate VS Projects
         shell: cmd
         run: |
           cd engine-10068\dev
           call cmakeall.cmd
+
+      - name: Compile C++ to EXE
+        shell: cmd
+        run: |
+          cd engine-10068\dev
+          call Rebuild.bat
+
+      - name: List built EXE files
+        shell: cmd
+        run: |
+          dir /s /b engine-10068\*.exe
 
       - name: Upload Binaries
         uses: actions/upload-artifact@v4
@@ -27,3 +41,4 @@ jobs:
           path: |
             engine-10068/**/*.exe
             engine-10068/**/*.dll
+          if-no-files-found: error

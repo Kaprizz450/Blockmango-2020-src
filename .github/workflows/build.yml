@@ -79,6 +79,21 @@ jobs:
             }
           }
 
+          # Добавляем реализацию функций динамических уровней g3log для сервера и клиента
+          @"
+          #include <g3log/loglevels.hpp>
+          namespace g3 {
+            bool logLevel(LEVELS) { return true; }
+            namespace log_levels {
+              void setHighest(LEVELS) {}
+              void disable(LEVELS) {}
+              void enable(LEVELS) {}
+              void disableAll() {}
+              void enableAll() {}
+            }
+          }
+          "@ | Set-Content "engine-10068\dev\logic\Src\Util\g3log_stubs.cpp"
+
       - name: Save vcpkg & Lua cache
         if: steps.cache-deps.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4

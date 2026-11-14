@@ -11,15 +11,14 @@ jobs:
       - name: Setup MSBuild & MSVC
         uses: microsoft/setup-msbuild@v2
 
-      - name: Cache vcpkg & Lua
+      - name: Restore vcpkg & Lua cache
         id: cache-deps
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: |
             C:\vcpkg\installed\x86-windows-rel
             engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
           key: bmgo-deps-rel-v1
-          save-always: true
 
       - name: Install Release Libs via vcpkg & Compile Lua
         shell: pwsh
@@ -45,10 +44,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$depBase\g3log\win32\lib" | Out-Null
           New-Item -ItemType Directory -Force -Path "$depBase\Lua\Win32\Lib" | Out-Null
 
-          Copy-Item "$vcpkgLib\freetype*.lib" "$depBase\FreeType\Win32\Lib\FreeType.lib" -Force
-          Copy-Item "$vcpkgLib\FreeImage*.lib" "$depBase\FreeImage\Win32\Lib\FreeImage.lib" -Force
-          Copy-Item "$vcpkgLib\zlib*.lib" "$depBase\Zlib\Win32\Lib\zlib.lib" -Force
-          Copy-Item "$vcpkgLib\g3log*.lib" "$depBase\g3log\win32\lib\g3logger.lib" -Force
+          Get-Item "$vcpkgLib\freetype*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\FreeType\Win32\Lib\FreeType.lib" -Force
+          Get-Item "$vcpkgLib\FreeImage*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\FreeImage\Win32\Lib\FreeImage.lib" -Force
+          Get-Item "$vcpkgLib\zlib*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\Zlib\Win32\Lib\zlib.lib" -Force
+          Get-Item "$vcpkgLib\g3log*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\g3log\win32\lib\g3logger.lib" -Force
 
           if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
             Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
@@ -58,6 +57,20 @@ jobs:
             $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
             cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars32.bat`" && cl /c /O2 /MD /MP /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del /q $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj 2>nul && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
           }
+
+          # Связываем engine-10068\dev\engine-core с engine-10068\engine-core для корректных относительных путей
+          if (-not (Test-Path "engine-10068\dev\engine-core")) {
+            cmd /c mklink /J "engine-10068\dev\engine-core" "engine-10068\engine-core"
+          }
+
+      - name: Save vcpkg & Lua cache
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            C:\vcpkg\installed\x86-windows-rel
+            engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
+          key: bmgo-deps-rel-v1
 
       - name: Generate CMake Projects
         shell: pwsh

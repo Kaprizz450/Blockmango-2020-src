@@ -11,16 +11,20 @@ jobs:
       - name: Setup MSBuild & MSVC
         uses: microsoft/setup-msbuild@v2
 
+      - name: Cache vcpkg packages
+        uses: actions/cache@v4
+        with:
+          path: C:\Users\runneradmin\AppData\Local\vcpkg\archives
+          key: vcpkg-x86-bmgo-v1
+
       - name: Install Missing Libs via vcpkg & Compile Lua
         shell: pwsh
         run: |
-          # Устанавливаем 32-битные библиотеки через предустановленный vcpkg
           vcpkg install freetype:x86-windows freeimage:x86-windows zlib:x86-windows g3log:x86-windows
 
           $vcpkgLib = "C:\vcpkg\installed\x86-windows\lib"
           $depBase = "engine-10068\engine-core\dev\engine\Dependencies"
 
-          # Создаем папки Lib и копируем библиотеки с нужными именами
           New-Item -ItemType Directory -Force -Path "$depBase\FreeType\Win32\Lib" | Out-Null
           New-Item -ItemType Directory -Force -Path "$depBase\FreeImage\Win32\Lib" | Out-Null
           New-Item -ItemType Directory -Force -Path "$depBase\Zlib\Win32\Lib" | Out-Null
@@ -32,9 +36,14 @@ jobs:
           Copy-Item "$vcpkgLib\zlib*.lib" "$depBase\Zlib\Win32\Lib\zlib.lib"
           Copy-Item "$vcpkgLib\g3log*.lib" "$depBase\g3log\win32\lib\g3logger.lib"
 
+          # Дублируем libcurl_imp.lib в libcurl.lib на случай если клиент запросит оба имени
+          if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
+            Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
+          }
+
           # Собираем lua.lib из исходников внутри репозитория
           $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars32.bat`" && cl /c /O2 /MD /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
+          cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars32.bat`" && cl /c /O2 /MD /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del /q $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj 2>nul && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
 
       - name: Generate CMake Projects
         shell: pwsh
@@ -60,13 +69,9 @@ jobs:
       - name: Build Engine Core & Clothes
         shell: pwsh
         run: |
-          $coreSln = Get-ChildItem "engine-10068\engine-core\dev\engine\Build" -Filter "*.sln" | Select-Object -First 1
-          msbuild $coreSln.FullName /p:Configuration=Release /p:Platform=Win32 /m
+          cmake --build "engine-10068\engine-core\dev\engine\Build" --config Release --parallel
+          cmake --build "engine-10068\engine-core\dev\clothes\Build" --config Release --parallel
 
-          $clothesSln = Get-ChildItem "engine-10068\engine-core\dev\clothes\Build" -Filter "*.sln" | Select-Object -First 1
-          msbuild $clothesSln.FullName /p:Configuration=Release /p:Platform=Win32 /m
-
-          # Раскладываем собранные LordCore.lib и LordGLES2Render.lib в ожидаемую папку release
           $binRelease = "engine-10068\engine-core\dev\engine\Bin\release"
           New-Item -ItemType Directory -Force -Path $binRelease | Out-Null
           Get-ChildItem "engine-10068\engine-core\dev\engine" -Filter "*.lib" -Recurse | Copy-Item -Destination $binRelease -Force

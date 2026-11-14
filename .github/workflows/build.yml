@@ -1,56 +1,17 @@
-name: Build BlockmanGO PC Client & Server
+name: Check Libs and Core SLN
 
 on: [workflow_dispatch, push]
 
 jobs:
-  build-windows:
+  check-libs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Generate CMake Projects (Core & Dev)
+      - name: Find all .lib files in repo
         shell: pwsh
         run: |
-          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
-          $dirs = @(
-            "engine-10068\engine-core\dev\engine",
-            "engine-10068\engine-core\dev\clothes",
-            "engine-10068\dev\logic",
-            "engine-10068\dev\server",
-            "engine-10068\dev\client"
-          )
-          foreach ($dir in $dirs) {
-            if (Test-Path "$dir\CMakeLists.txt") {
-              Write-Host "=== CMake: $dir ==="
-              New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
-              Push-Location "$dir\Build"
-              cmake -A Win32 ..
-              Pop-Location
-            }
-          }
-
-      - name: Build Server (WinServer.sln)
-        shell: cmd
-        run: |
-          msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m
-
-      - name: Build Client (WinShell.sln)
-        shell: cmd
-        run: |
-          msbuild engine-10068\dev\client\Shells\Win32\WinShell.sln /p:Configuration=Release /p:Platform=Win32 /m
-
-      - name: List built EXE files
-        shell: cmd
-        run: |
-          dir /s /b engine-10068\*.exe
-
-      - name: Upload Binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: BlockmanGO-PC-Client-Server
-          path: |
-            engine-10068/**/*.exe
-            engine-10068/**/*.dll
+          Write-Host "=== Все .lib файлы в репозитории ==="
+          Get-ChildItem -Path "engine-10068" -Filter "*.lib" -Recurse | Select-Object FullName
+          Write-Host "`n=== Папки внутри Dependencies ==="
+          Get-ChildItem -Path "engine-10068\engine-core\dev\engine\Dependencies" -Recurse -Depth 2 | Select-Object FullName

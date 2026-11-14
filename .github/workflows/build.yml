@@ -1,6 +1,37 @@
-- name: Install Release Libs & Fix Paths
+name: Build BlockmanGO Full PC
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild & MSVC
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore vcpkg & Lua cache
+        id: cache-deps
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            C:\vcpkg\installed\x86-windows-rel
+            engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
+          key: bmgo-deps-rel-v2
+
+      - name: Install Dependencies & Prepare Libraries
         shell: pwsh
         run: |
+          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $vcvars = "$vsPath\VC\Auxiliary\Build\vcvars32.bat"
+          $depBase = "engine-10068\engine-core\dev\engine\Dependencies"
+
+          # 1. Сборка библиотек через vcpkg (Release x86)
           if (-not (Test-Path "C:\vcpkg\installed\x86-windows-rel\lib")) {
             New-Item -ItemType Directory -Force -Path "C:\vcpkg\custom-triplets" | Out-Null
             @"
@@ -14,47 +45,87 @@
           }
 
           $vcpkgLib = "C:\vcpkg\installed\x86-windows-rel\lib"
-          $depBase = "engine-10068\engine-core\dev\engine\Dependencies"
 
-          New-Item -ItemType Directory -Force -Path "$depBase\FreeType\Win32\Lib" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$depBase\FreeImage\Win32\Lib" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$depBase\Zlib\Win32\Lib" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$depBase\g3log\win32\lib" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$depBase\Lua\Win32\Lib" | Out-Null
+          # Создаем целевые каталоги для библиотек
+          $dirs = @(
+            "$depBase\FreeType\Win32\Lib",
+            "$depBase\FreeImage\Win32\Lib",
+            "$depBase\Zlib\Win32\Lib",
+            "$depBase\g3log\win32\lib",
+            "$depBase\Lua\Win32\Lib",
+            "$depBase\opengles_v2\Lib",
+            "$depBase\fmod\Win32\Lib",
+            "$depBase\fmod\WIN32\Lib",
+            "engine-10068\dev\logic\dependencies\raknet\win32\debug",
+            "engine-10068\dev\logic\dependencies\win32\raknet\lib\debug",
+            "engine-10068\res\client"
+          )
+          foreach ($d in $dirs) {
+            New-Item -ItemType Directory -Force -Path $d | Out-Null
+          }
 
+          # Копируем библиотеки vcpkg
           Get-Item "$vcpkgLib\freetype*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\FreeType\Win32\Lib\FreeType.lib" -Force
           Get-Item "$vcpkgLib\FreeImage*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\FreeImage\Win32\Lib\FreeImage.lib" -Force
           Get-ChildItem "$vcpkgLib\*z*.lib" | Where-Object { $_.Name -notlike "*zstd*" -and $_.Name -notlike "*jxr*" } | Select-Object -First 1 | Copy-Item -Destination "$depBase\Zlib\Win32\Lib\zlib.lib" -Force
           Get-Item "$vcpkgLib\g3log*.lib" | Select-Object -First 1 | Copy-Item -Destination "$depBase\g3log\win32\lib\g3logger.lib" -Force
 
-          # Дублируем zlib, curl и OpenGL ES (libEGL / libGLESv2) для клиента
           Copy-Item "$depBase\Zlib\Win32\Lib\zlib.lib" "$depBase\Lua\Win32\Lib\zlib.lib" -Force
-          
-          $glesPath = Join-Path $depBase "opengles_v2"
-          if (Test-Path $glesPath) {
-            Get-ChildItem -Path $glesPath -Recurse -Include "libEGL.lib","libGLESv2.lib","EGL.lib","GLESv2.lib" | Copy-Item -Destination "$depBase\Lua\Win32\Lib\" -Force
-          }
 
+          # Копируем curl и raknet
           if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
             Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
+            Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "$depBase\Lua\Win32\Lib\libcurl.lib" -Force
+            Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "$depBase\Lua\Win32\Lib\libcurl_imp.lib" -Force
           }
 
-          # Копируем raknet.lib в ожидаемую клиентом папку
-          $rakDest = "engine-10068\dev\logic\dependencies\raknet\win32\debug"
-          New-Item -ItemType Directory -Force -Path $rakDest | Out-Null
-          Copy-Item "engine-10068\dev\logic\dependencies\win32\raknet\lib\release\raknet.lib" "$rakDest\raknet.lib" -Force
+          if (Test-Path "engine-10068\dev\logic\dependencies\win32\raknet\lib\release\raknet.lib") {
+            Copy-Item "engine-10068\dev\logic\dependencies\win32\raknet\lib\release\raknet.lib" "engine-10068\dev\logic\dependencies\raknet\win32\debug\raknet.lib" -Force
+            Copy-Item "engine-10068\dev\logic\dependencies\win32\raknet\lib\release\raknet.lib" "engine-10068\dev\logic\dependencies\win32\raknet\lib\debug\raknet.lib" -Force
+            Copy-Item "engine-10068\dev\logic\dependencies\win32\raknet\lib\release\raknet.lib" "$depBase\Lua\Win32\Lib\raknet.lib" -Force
+          }
 
+          # 2. Компиляция lua.lib
           if (-not (Test-Path "$depBase\Lua\Win32\Lib\lua.lib")) {
-            $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-            cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars32.bat`" && cl /c /O2 /MD /MP /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del /q $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj 2>nul && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
+            cmd /c "`"$vcvars`" && cl /c /O2 /MD /MP /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del /q $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj 2>nul && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
           }
 
+          # 3. Автогенерация библиотек импорта (.lib) из DLL для libEGL, libGLESv2, fmod
+          function Build-ImportLib {
+            param([string]$DllPath, [string]$OutLibPath, [string]$DllName)
+            if (-not (Test-Path $DllPath)) {
+              Write-Warning "DLL not found: $DllPath"
+              return
+            }
+            $defPath = [System.IO.Path]::ChangeExtension($OutLibPath, ".def")
+            $dump = cmd /c "`"$vcvars`" && dumpbin /exports `"$DllPath`""
+            $exports = @()
+            foreach ($line in $dump) {
+              if ($line -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]{8}\s+(\S+)') {
+                $exports += $matches[1]
+              }
+            }
+            $def = "LIBRARY `"$DllName`"`r`nEXPORTS`r`n" + ($exports -join "`r`n")
+            Set-Content -Path $defPath -Value $def -Encoding Ascii
+            cmd /c "`"$vcvars`" && lib /def:`"$defPath`" /machine:x86 /out:`"$OutLibPath`""
+          }
+
+          $resClient = "engine-10068\res\client"
+          Build-ImportLib "$resClient\libEGL.dll" "$depBase\opengles_v2\Lib\libEGL.lib" "libEGL.dll"
+          Build-ImportLib "$resClient\libGLESv2.dll" "$depBase\opengles_v2\Lib\libGLESv2.lib" "libGLESv2.dll"
+          Build-ImportLib "$resClient\fmod.dll" "$depBase\fmod\Win32\Lib\fmod_vc.lib" "fmod.dll"
+
+          Copy-Item "$depBase\opengles_v2\Lib\*.lib" "$depBase\Lua\Win32\Lib\" -Force
+          Copy-Item "$depBase\fmod\Win32\Lib\fmod_vc.lib" "$depBase\fmod\WIN32\Lib\fmod_vc.lib" -Force
+          Copy-Item "$depBase\fmod\Win32\Lib\fmod_vc.lib" "$depBase\Lua\Win32\Lib\fmod_vc.lib" -Force
+
+          # 4. Создание симлинка engine-core для dev
           if (-not (Test-Path "engine-10068\dev\engine-core")) {
             cmd /c mklink /J "engine-10068\dev\engine-core" "engine-10068\engine-core"
           }
 
-          # Убираем принудительный #define _DEBUG из файлов Behaviac
-          Get-ChildItem -Path "engine-10068\dev\server\src\Behaviac", "engine-10068\dev\server\dependencies\win32\behaviac" -Recurse -Include *.h,*.hpp,*.cpp,*.inl | ForEach-Object {
+          # 5. Устраняем принудительный #define _DEBUG в Behaviac
+          Get-ChildItem -Path "engine-10068\dev\server\src\Behaviac", "engine-10068\dev\server\dependencies\win32\behaviac" -Recurse -Include *.h,*.hpp,*.cpp,*.inl -ErrorAction SilentlyContinue | ForEach-Object {
             $text = Get-Content $_.FullName -Raw
             if ($text -match '#\s*define\s+_DEBUG\b|#\s*undef\s+NDEBUG\b') {
               $text = $text -replace '#\s*define\s+_DEBUG\b', '// #define _DEBUG'
@@ -63,7 +134,7 @@
             }
           }
 
-          # Добавляем реализацию функций динамических уровней g3log для сервера и клиента
+          # 6. Заглушки g3log
           @"
           #include <g3log/loglevels.hpp>
           namespace g3 {
@@ -77,3 +148,98 @@
             }
           }
           "@ | Set-Content "engine-10068\dev\logic\Src\Util\g3log_stubs.cpp"
+
+      - name: Save vcpkg & Lua cache
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            C:\vcpkg\installed\x86-windows-rel
+            engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
+          key: bmgo-deps-rel-v2
+
+      - name: Generate CMake Projects
+        shell: pwsh
+        run: |
+          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
+          $dirs = @(
+            "engine-10068\engine-core\dev\engine",
+            "engine-10068\engine-core\dev\clothes",
+            "engine-10068\dev\logic",
+            "engine-10068\dev\server",
+            "engine-10068\dev\client"
+          )
+          foreach ($dir in $dirs) {
+            if (Test-Path "$dir\CMakeLists.txt") {
+              New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
+              Push-Location "$dir\Build"
+              cmake -A Win32 ..
+              Pop-Location
+            }
+          }
+
+      - name: Build Engine Core & Clothes
+        shell: pwsh
+        run: |
+          cmake --build "engine-10068\engine-core\dev\engine\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
+          cmake --build "engine-10068\engine-core\dev\clothes\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
+          Copy-Item "engine-10068\engine-core\dev\clothes\Bin\Release\Clothes.lib" "engine-10068\engine-core\dev\engine\Bin\Release\" -Force
+
+      - name: Build Logic
+        shell: pwsh
+        run: |
+          cmake --build "engine-10068\dev\logic\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
+          $luaLib = "engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib"
+          Copy-Item "engine-10068\engine-core\dev\engine\Bin\Release\*.lib" $luaLib -Force
+          Copy-Item "engine-10068\dev\logic\Bin\Release\Logic.lib" "$luaLib\logic.lib" -Force
+
+      - name: Build Server (GameServer)
+        shell: cmd
+        run: |
+          msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
+
+      - name: Build Client Static Library (GameClient)
+        shell: pwsh
+        run: |
+          cmake --build "engine-10068\dev\client\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
+          $luaLib = "engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib"
+          if (Test-Path "engine-10068\dev\client\Bin\Release\GameClient.lib") {
+            Copy-Item "engine-10068\dev\client\Bin\Release\GameClient.lib" "$luaLib\" -Force
+          }
+
+      - name: Build Windows Client Shell (WinShell.exe)
+        shell: pwsh
+        run: |
+          # Собираем WinShell.vcxproj с /FORCE для предотвращения конфликтов символов устаревших библиотек
+          msbuild engine-10068\dev\client\Shells\Win32\WinShell\WinShell.vcxproj /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4 /p:LinkAdditionalOptions="/FORCE"
+
+      - name: Prepare Complete Game Distribution Package
+        shell: pwsh
+        run: |
+          $target = "engine-10068\res\client"
+          New-Item -ItemType Directory -Force -Path $target | Out-Null
+
+          # Копируем полученные исполняемые файлы
+          if (Test-Path "engine-10068\dev\server\Bin\Release\GameServer.exe") {
+            Copy-Item "engine-10068\dev\server\Bin\Release\GameServer.exe" "$target\" -Force
+          }
+          if (Test-Path "engine-10068\dev\client\Shells\Win32\WinShell\Release\WinShell.exe") {
+            Copy-Item "engine-10068\dev\client\Shells\Win32\WinShell\Release\WinShell.exe" "$target\" -Force
+          }
+
+          # Копируем рантайм DLL из vcpkg
+          if (Test-Path "C:\vcpkg\installed\x86-windows-rel\bin") {
+            Copy-Item "C:\vcpkg\installed\x86-windows-rel\bin\*.dll" "$target\" -Force
+          }
+
+          # Выводим состав папки с готовым клиентом
+          Write-Host "Files in distribution directory ($target):"
+          Get-ChildItem -Path $target | Select-Object Name, Length | Format-Table -AutoSize
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockmanGO-PC-Full-Release
+          path: |
+            engine-10068/res/client/**
+            engine-10068/**/*.exe

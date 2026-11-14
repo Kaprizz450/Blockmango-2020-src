@@ -1,21 +1,55 @@
-name: Inspect Build Scripts
+name: Build BlockmanGO PC Client & Server
 
 on: [workflow_dispatch, push]
 
 jobs:
-  inspect:
+  build-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read build scripts and find CMakeLists
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Generate CMake Projects (Core & Dev)
         shell: pwsh
         run: |
-          Write-Host "=== cmakeall.cmd ==="
-          Get-Content "engine-10068\dev\cmakeall.cmd" -ErrorAction SilentlyContinue
-          Write-Host "`n=== Rebuild.bat ==="
-          Get-Content "engine-10068\dev\Rebuild.bat" -ErrorAction SilentlyContinue
-          Write-Host "`n=== Все файлы CMakeLists.txt ==="
-          Get-ChildItem -Path "engine-10068" -Filter "CMakeLists.txt" -Recurse | Select-Object FullName
-          Write-Host "`n=== Все файлы .sln ==="
-          Get-ChildItem -Path "engine-10068" -Filter "*.sln" -Recurse | Select-Object FullName
+          $dirs = @(
+            "engine-10068\engine-core\dev\engine",
+            "engine-10068\engine-core\dev\clothes",
+            "engine-10068\dev\logic",
+            "engine-10068\dev\server",
+            "engine-10068\dev\client"
+          )
+          foreach ($dir in $dirs) {
+            if (Test-Path "$dir\CMakeLists.txt") {
+              Write-Host "=== CMake: $dir ==="
+              New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
+              Push-Location "$dir\Build"
+              cmake -A Win32 ..
+              Pop-Location
+            }
+          }
+
+      - name: Build Server (WinServer.sln)
+        shell: cmd
+        run: |
+          msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m
+
+      - name: Build Client (WinShell.sln)
+        shell: cmd
+        run: |
+          msbuild engine-10068\dev\client\Shells\Win32\WinShell.sln /p:Configuration=Release /p:Platform=Win32 /m
+
+      - name: List built EXE files
+        shell: cmd
+        run: |
+          dir /s /b engine-10068\*.exe
+
+      - name: Upload Binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: BlockmanGO-PC-Client-Server
+          path: |
+            engine-10068/**/*.exe
+            engine-10068/**/*.dll

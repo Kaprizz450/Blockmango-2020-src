@@ -14,6 +14,7 @@ jobs:
       - name: Generate CMake Projects (Core & Dev)
         shell: pwsh
         run: |
+          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
           $dirs = @(
             "engine-10068\engine-core\dev\engine",
             "engine-10068\engine-core\dev\clothes",
@@ -26,7 +27,7 @@ jobs:
               Write-Host "=== CMake: $dir ==="
               New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
               Push-Location "$dir\Build"
-              cmake -A Win32 -DCMAKE_POLICY_VERSION_MINIMUM=3.5 ..
+              cmake -A Win32 ..
               Pop-Location
             }
           }

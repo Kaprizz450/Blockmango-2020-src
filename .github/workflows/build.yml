@@ -55,7 +55,6 @@ jobs:
             "$depBase\Lua\Win32\Lib",
             "$depBase\opengles_v2\Lib",
             "$depBase\fmod\Win32\Lib",
-            "$depBase\fmod\WIN32\Lib",
             "engine-10068\dev\logic\dependencies\raknet\win32\debug",
             "engine-10068\dev\logic\dependencies\win32\raknet\lib\debug",
             "engine-10068\res\client"
@@ -116,7 +115,6 @@ jobs:
           Build-ImportLib "$resClient\fmod.dll" "$depBase\fmod\Win32\Lib\fmod_vc.lib" "fmod.dll"
 
           Copy-Item "$depBase\opengles_v2\Lib\*.lib" "$depBase\Lua\Win32\Lib\" -Force
-          Copy-Item "$depBase\fmod\Win32\Lib\fmod_vc.lib" "$depBase\fmod\WIN32\Lib\fmod_vc.lib" -Force
           Copy-Item "$depBase\fmod\Win32\Lib\fmod_vc.lib" "$depBase\Lua\Win32\Lib\fmod_vc.lib" -Force
 
           # 4. Создание симлинка engine-core для dev

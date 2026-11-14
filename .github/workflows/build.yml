@@ -1,4 +1,4 @@
-name: Build BlockmanGO Full PC
+name: Build BlockmanGO Full PC (Fast)
 
 on: [workflow_dispatch, push]
 
@@ -11,18 +11,32 @@ jobs:
       - name: Setup MSBuild & MSVC
         uses: microsoft/setup-msbuild@v2
 
-      - name: Cache vcpkg packages
+      - name: Cache vcpkg & Lua
+        id: cache-deps
         uses: actions/cache@v4
         with:
-          path: C:\Users\runneradmin\AppData\Local\vcpkg\archives
-          key: vcpkg-x86-bmgo-v1
+          path: |
+            C:\vcpkg\installed\x86-windows-rel
+            engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
+          key: bmgo-deps-rel-v1
+          save-always: true
 
-      - name: Install Missing Libs via vcpkg & Compile Lua
+      - name: Install Release Libs via vcpkg & Compile Lua
         shell: pwsh
         run: |
-          vcpkg install freetype:x86-windows freeimage:x86-windows zlib:x86-windows g3log:x86-windows
+          if (-not (Test-Path "C:\vcpkg\installed\x86-windows-rel\lib")) {
+            New-Item -ItemType Directory -Force -Path "C:\vcpkg\custom-triplets" | Out-Null
+            @"
+          set(VCPKG_TARGET_ARCHITECTURE x86)
+          set(VCPKG_CRT_LINKAGE dynamic)
+          set(VCPKG_LIBRARY_LINKAGE dynamic)
+          set(VCPKG_BUILD_TYPE release)
+          "@ | Set-Content "C:\vcpkg\custom-triplets\x86-windows-rel.cmake"
 
-          $vcpkgLib = "C:\vcpkg\installed\x86-windows\lib"
+            vcpkg install --overlay-triplets=C:\vcpkg\custom-triplets freetype:x86-windows-rel freeimage:x86-windows-rel zlib:x86-windows-rel g3log:x86-windows-rel
+          }
+
+          $vcpkgLib = "C:\vcpkg\installed\x86-windows-rel\lib"
           $depBase = "engine-10068\engine-core\dev\engine\Dependencies"
 
           New-Item -ItemType Directory -Force -Path "$depBase\FreeType\Win32\Lib" | Out-Null
@@ -31,19 +45,19 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$depBase\g3log\win32\lib" | Out-Null
           New-Item -ItemType Directory -Force -Path "$depBase\Lua\Win32\Lib" | Out-Null
 
-          Copy-Item "$vcpkgLib\freetype*.lib" "$depBase\FreeType\Win32\Lib\FreeType.lib"
-          Copy-Item "$vcpkgLib\FreeImage*.lib" "$depBase\FreeImage\Win32\Lib\FreeImage.lib"
-          Copy-Item "$vcpkgLib\zlib*.lib" "$depBase\Zlib\Win32\Lib\zlib.lib"
-          Copy-Item "$vcpkgLib\g3log*.lib" "$depBase\g3log\win32\lib\g3logger.lib"
+          Copy-Item "$vcpkgLib\freetype*.lib" "$depBase\FreeType\Win32\Lib\FreeType.lib" -Force
+          Copy-Item "$vcpkgLib\FreeImage*.lib" "$depBase\FreeImage\Win32\Lib\FreeImage.lib" -Force
+          Copy-Item "$vcpkgLib\zlib*.lib" "$depBase\Zlib\Win32\Lib\zlib.lib" -Force
+          Copy-Item "$vcpkgLib\g3log*.lib" "$depBase\g3log\win32\lib\g3logger.lib" -Force
 
-          # Дублируем libcurl_imp.lib в libcurl.lib на случай если клиент запросит оба имени
           if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
             Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
           }
 
-          # Собираем lua.lib из исходников внутри репозитория
-          $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
-          cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars32.bat`" && cl /c /O2 /MD /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del /q $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj 2>nul && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
+          if (-not (Test-Path "$depBase\Lua\Win32\Lib\lua.lib")) {
+            $vsPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+            cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars32.bat`" && cl /c /O2 /MD /MP /D_CRT_SECURE_NO_WARNINGS $depBase\Lua\Src\*.c /Fo$depBase\Lua\Win32\Lib\ && del /q $depBase\Lua\Win32\Lib\lua.obj $depBase\Lua\Win32\Lib\luac.obj 2>nul && lib /OUT:$depBase\Lua\Win32\Lib\lua.lib $depBase\Lua\Win32\Lib\*.obj"
+          }
 
       - name: Generate CMake Projects
         shell: pwsh
@@ -58,7 +72,6 @@ jobs:
           )
           foreach ($dir in $dirs) {
             if (Test-Path "$dir\CMakeLists.txt") {
-              Write-Host "=== CMake: $dir ==="
               New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
               Push-Location "$dir\Build"
               cmake -A Win32 ..
@@ -66,25 +79,22 @@ jobs:
             }
           }
 
-      - name: Build Engine Core & Clothes
+      - name: Build Engine Core & Clothes (Multi-Core)
         shell: pwsh
         run: |
-          cmake --build "engine-10068\engine-core\dev\engine\Build" --config Release --parallel
-          cmake --build "engine-10068\engine-core\dev\clothes\Build" --config Release --parallel
-
-          $binRelease = "engine-10068\engine-core\dev\engine\Bin\release"
-          New-Item -ItemType Directory -Force -Path $binRelease | Out-Null
-          Get-ChildItem "engine-10068\engine-core\dev\engine" -Filter "*.lib" -Recurse | Copy-Item -Destination $binRelease -Force
+          cmake --build "engine-10068\engine-core\dev\engine\Build" --config Release -- /m /p:CL_MPCount=4
+          cmake --build "engine-10068\engine-core\dev\clothes\Build" --config Release -- /m /p:CL_MPCount=4
+          Copy-Item "engine-10068\engine-core\dev\clothes\Bin\Release\Clothes.lib" "engine-10068\engine-core\dev\engine\Bin\Release\" -Force
 
       - name: Build Server (WinServer.sln)
         shell: cmd
         run: |
-          msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m
+          msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
 
       - name: Build Client (WinShell.sln)
         shell: cmd
         run: |
-          msbuild engine-10068\dev\client\Shells\Win32\WinShell.sln /p:Configuration=Release /p:Platform=Win32 /m
+          msbuild engine-10068\dev\client\Shells\Win32\WinShell.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
 
       - name: List built EXE & DLL files
         shell: cmd
@@ -98,4 +108,4 @@ jobs:
           path: |
             engine-10068/**/*.exe
             engine-10068/**/*.dll
-            C:/vcpkg/installed/x86-windows/bin/*.dll
+            C:/vcpkg/installed/x86-windows-rel/bin/*.dll

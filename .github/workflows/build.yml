@@ -1,26 +1,4 @@
-name: Build BlockmanGO Full PC (Fast)
-
-on: [workflow_dispatch, push]
-
-jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup MSBuild & MSVC
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Restore vcpkg & Lua cache
-        id: cache-deps
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            C:\vcpkg\installed\x86-windows-rel
-            engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
-          key: bmgo-deps-rel-v1
-
-      - name: Install Release Libs & Fix Paths
+- name: Install Release Libs & Fix Paths
         shell: pwsh
         run: |
           if (-not (Test-Path "C:\vcpkg\installed\x86-windows-rel\lib")) {
@@ -51,7 +29,12 @@ jobs:
 
           # Дублируем zlib, curl и OpenGL ES (libEGL / libGLESv2) для клиента
           Copy-Item "$depBase\Zlib\Win32\Lib\zlib.lib" "$depBase\Lua\Win32\Lib\zlib.lib" -Force
-          Get-ChildItem "$depBase\opengles_v2" -Recurse -Filter *.lib | Copy-Item -Destination "$depBase\Lua\Win32\Lib\" -Force
+          
+          $glesPath = Join-Path $depBase "opengles_v2"
+          if (Test-Path $glesPath) {
+            Get-ChildItem -Path $glesPath -Recurse -Include "libEGL.lib","libGLESv2.lib","EGL.lib","GLESv2.lib" | Copy-Item -Destination "$depBase\Lua\Win32\Lib\" -Force
+          }
+
           if (Test-Path "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib") {
             Copy-Item "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl_imp.lib" "engine-10068\dev\logic\dependencies\curl\win32\lib\libcurl.lib" -Force
           }
@@ -94,66 +77,3 @@ jobs:
             }
           }
           "@ | Set-Content "engine-10068\dev\logic\Src\Util\g3log_stubs.cpp"
-
-      - name: Save vcpkg & Lua cache
-        if: steps.cache-deps.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            C:\vcpkg\installed\x86-windows-rel
-            engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib
-          key: bmgo-deps-rel-v1
-
-      - name: Generate CMake Projects
-        shell: pwsh
-        run: |
-          $env:CMAKE_POLICY_VERSION_MINIMUM = "3.5"
-          $dirs = @(
-            "engine-10068\engine-core\dev\engine",
-            "engine-10068\engine-core\dev\clothes",
-            "engine-10068\dev\logic",
-            "engine-10068\dev\server",
-            "engine-10068\dev\client"
-          )
-          foreach ($dir in $dirs) {
-            if (Test-Path "$dir\CMakeLists.txt") {
-              New-Item -ItemType Directory -Force -Path "$dir\Build" | Out-Null
-              Push-Location "$dir\Build"
-              cmake -A Win32 ..
-              Pop-Location
-            }
-          }
-
-      - name: Build Engine Core & Clothes
-        shell: pwsh
-        run: |
-          cmake --build "engine-10068\engine-core\dev\engine\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
-          cmake --build "engine-10068\engine-core\dev\clothes\Build" --config Release -- /m /p:MultiProcessorCompilation=true /p:CL_MPCount=4
-          Copy-Item "engine-10068\engine-core\dev\clothes\Bin\Release\Clothes.lib" "engine-10068\engine-core\dev\engine\Bin\Release\" -Force
-
-      - name: Build Server (WinServer.sln)
-        shell: cmd
-        run: |
-          msbuild engine-10068\dev\server\WinServer.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
-
-      - name: Prepare Libs & Build Client (WinShell.sln)
-        shell: pwsh
-        run: |
-          $luaLib = "engine-10068\engine-core\dev\engine\Dependencies\Lua\Win32\Lib"
-          Copy-Item "engine-10068\engine-core\dev\engine\Bin\Release\*.lib" $luaLib -Force
-          Copy-Item "engine-10068\dev\logic\Bin\Release\Logic.lib" "$luaLib\logic.lib" -Force
-          msbuild engine-10068\dev\client\Shells\Win32\WinShell.sln /p:Configuration=Release /p:Platform=Win32 /m /p:CL_MPCount=4
-
-      - name: List built EXE & DLL files
-        shell: cmd
-        run: |
-          dir /s /b engine-10068\*.exe
-
-      - name: Upload Binaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: BlockmanGO-PC-Full
-          path: |
-            engine-10068/**/*.exe
-            engine-10068/**/*.dll
-            C:/vcpkg/installed/x86-windows-rel/bin/*.dll
